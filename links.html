@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>リンク集</title>
+<script src="config.js"></script>
+<style>
+  :root {
+    --bg: #1f4fd1;
+    --ink: #ffffff;
+    --mute: #cfdbff;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", Meiryo, sans-serif;
+    line-height: 1.7;
+  }
+  .wrap { max-width: 30rem; margin: 0 auto; padding: 56px 24px 72px; }
+  h1 { margin: 0 0 8px; font-size: clamp(1.6rem, 6vw, 2.2rem); font-weight: 800; line-height: 1.35; }
+  .lead { margin: 0 0 32px; color: var(--mute); font-size: 0.95rem; }
+  .msg { margin: 0 0 20px; font-size: 1rem; word-break: break-all; }
+  .msg.small { color: var(--mute); font-size: 0.88rem; }
+  [hidden] { display: none !important; }
+
+  button.plain {
+    font: inherit; font-size: 0.85rem; color: var(--ink);
+    background: none; border: 0; padding: 4px 0; cursor: pointer; text-decoration: underline;
+  }
+  button.solid {
+    font: inherit; font-weight: 700; font-size: 1rem;
+    padding: 14px 20px; border-radius: 10px; border: 2px solid #fff;
+    background: #fff; color: var(--bg); cursor: pointer;
+  }
+  button:focus-visible, a:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+
+  .userbar { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 20px; }
+  .userbar .who { color: var(--mute); font-size: 0.85rem; word-break: break-all; }
+
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  a.item {
+    display: block; padding: 16px 18px; border: 2px solid var(--ink);
+    border-radius: 10px; color: var(--ink); text-decoration: none;
+  }
+  a.item:hover { background: rgba(255, 255, 255, 0.14); }
+  .title { display: block; font-size: 1.05rem; font-weight: 700; line-height: 1.4; }
+  .note { display: block; margin-top: 2px; font-size: 0.88rem; }
+  .host { display: block; margin-top: 4px; font-size: 0.8rem; color: var(--mute); word-break: break-all; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>リンク集</h1>
+  <p class="lead">どのリンクも、年齢確認のあとに移動します。</p>
+
+  <!-- ログイン前 -->
+  <section id="v-login" hidden>
+    <p class="msg" id="login-msg">Googleアカウントでログインしてください。</p>
+    <div id="gbtn"></div>
+  </section>
+
+  <!-- 許可されていないアカウント -->
+  <section id="v-denied" hidden>
+    <p class="msg">このアカウントでは、リンク集を見られません。</p>
+    <p class="msg small" id="denied-who"></p>
+    <button type="button" class="solid" id="switch">別のアカウントでログイン</button>
+  </section>
+
+  <!-- ログイン後 -->
+  <section id="v-list" hidden>
+    <div class="userbar">
+      <span class="who" id="who"></span>
+      <button type="button" class="plain" id="logout">ログアウト</button>
+    </div>
+    <ul id="list"></ul>
+  </section>
+</main>
+
+<script>
+(function () {
+  // 設定は config.js にあります
+  var C = window.CONFIG || {};
+  var CLIENT_ID = C.googleClientId || "";
+  var GATE = C.gate || "index.html";
+  var LINKS = C.links || [];
+  var ALLOWED = (C.allowedEmails || []).map(function (s) {
+    return String(s).trim().toLowerCase();
+  }).filter(Boolean);
+  var KEY = "links_credential";
+
+  var views = {
+    login: document.getElementById("v-login"),
+    denied: document.getElementById("v-denied"),
+    list: document.getElementById("v-list")
+  };
+  function show(name) {
+    Object.keys(views).forEach(function (k) { views[k].hidden = (k !== name); });
+  }
+
+  // ---- Googleのログイン情報(IDトークン)の中身を読む ----
+  function decodeJwt(token) {
+    var p = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (p.length % 4) p += "=";
+    var bin = atob(p);
+    var esc = "";
+    for (var i = 0; i < bin.length; i++) {
+      esc += "%" + ("00" + bin.charCodeAt(i).toString(16)).slice(-2);
+    }
+    return JSON.parse(decodeURIComponent(esc));
+  }
+
+  // 正しいトークンならメールアドレスを返す。おかしければ null。
+  function emailOf(token) {
+    try {
+      var d = decodeJwt(token);
+      if (d.aud !== CLIENT_ID) return null;
+      if (d.iss !== "https://accounts.google.com" && d.iss !== "accounts.google.com") return null;
+      if (!d.exp || d.exp * 1000 < Date.now()) return null;
+      if (!d.email || d.email_verified !== true) return null;
+      return String(d.email).toLowerCase();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ---- リンクの表示 ----
+  function renderList() {
+    var list = document.getElementById("list");
+    list.innerHTML = "";
+    LINKS.forEach(function (item) {
+      var host;
+      try {
+        var u = new URL(item.url);
+        if (u.protocol !== "https:" && u.protocol !== "http:") return;
+        host = u.hostname;
+      } catch (e) { return; }
+
+      var li = document.createElement("li");
+      var a = document.createElement("a");
+      a.className = "item";
+      // 必ず年齢確認ページを経由する
+      a.href = GATE + "#" + encodeURIComponent(item.url);
+      a.rel = "noreferrer";
+
+      var t = document.createElement("span");
+      t.className = "title";
+      t.textContent = item.title;
+      a.appendChild(t);
+
+      if (item.note) {
+        var n = document.createElement("span");
+        n.className = "note";
+        n.textContent = item.note;
+        a.appendChild(n);
+      }
+      var h = document.createElement("span");
+      h.className = "host";
+      h.textContent = host;
+      a.appendChild(h);
+
+      li.appendChild(a);
+      list.appendChild(li);
+    });
+  }
+
+  function handleToken(token, fromLoginButton) {
+    var email = emailOf(token);
+    if (!email) {
+      sessionStorage.removeItem(KEY);
+      document.getElementById("login-msg").textContent =
+        fromLoginButton ? "ログインに失敗しました。もう一度お試しください。" : "Googleアカウントでログインしてください。";
+      showLogin();
+      return;
+    }
+    if (ALLOWED.indexOf(email) === -1) {
+      sessionStorage.removeItem(KEY);
+      document.getElementById("denied-who").textContent = email;
+      show("denied");
+      return;
+    }
+    try { sessionStorage.setItem(KEY, token); } catch (e) {}
+    document.getElementById("who").textContent = email;
+    renderList();
+    show("list");
+  }
+
+  // ---- Googleログインボタン ----
+  var gsiReady = false;
+  function renderButton() {
+    var box = document.getElementById("gbtn");
+    box.innerHTML = "";
+    google.accounts.id.renderButton(box, {
+      theme: "outline", size: "large", shape: "pill", text: "signin_with", locale: "ja"
+    });
+  }
+  function showLogin() {
+    show("login");
+    if (!CLIENT_ID) {
+      document.getElementById("login-msg").textContent = "config.js の googleClientId を設定してください。";
+      return;
+    }
+    if (gsiReady) { renderButton(); return; }
+    var s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true;
+    s.onload = function () {
+      google.accounts.id.initialize({
+        client_id: CLIENT_ID,
+        callback: function (res) { handleToken(res.credential, true); },
+        auto_select: false
+      });
+      gsiReady = true;
+      renderButton();
+    };
+    s.onerror = function () {
+      document.getElementById("login-msg").textContent = "Googleのログインを読み込めませんでした。通信状況を確認してください。";
+    };
+    document.head.appendChild(s);
+  }
+
+  function logout() {
+    sessionStorage.removeItem(KEY);
+    if (gsiReady) google.accounts.id.disableAutoSelect();
+    document.getElementById("login-msg").textContent = "Googleアカウントでログインしてください。";
+    showLogin();
+  }
+  document.getElementById("logout").addEventListener("click", logout);
+  document.getElementById("switch").addEventListener("click", logout);
+
+  // ---- 開いたとき ----
+  var saved = null;
+  try { saved = sessionStorage.getItem(KEY); } catch (e) {}
+  if (saved && emailOf(saved)) handleToken(saved, false);
+  else showLogin();
+})();
+</script>
+</body>
+</html>
