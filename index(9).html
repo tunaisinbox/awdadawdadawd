@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>年齢確認｜18歳以上ですか?</title>
+<style>
+  :root {
+    --bg: #1f4fd1;
+    --ink: #ffffff;
+    --accent: #1f4fd1;
+    --hover: #e3ebff;
+    --mute: #cfdbff;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  /* 移動先の確認が終わるまでは真っ白にしておく */
+  html { background: #ffffff; }
+  html:not(.ready) body { visibility: hidden; }
+  html.ready { background: var(--bg); }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", Meiryo, sans-serif;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+  .gate {
+    position: relative;
+    min-height: 100%;
+    display: grid;
+    align-content: center;
+    padding: 48px 24px;
+  }
+  .numeral {
+    position: absolute;
+    right: -0.06em;
+    top: 50%;
+    transform: translateY(-50%);
+    margin: 0;
+    font-size: clamp(11rem, 46vw, 30rem);
+    font-weight: 900;
+    line-height: 0.8;
+    letter-spacing: -0.07em;
+    color: #ffffff;
+    opacity: 0.12;
+    user-select: none;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .panel {
+    position: relative;
+    width: 100%;
+    max-width: 30rem;
+    margin: 0 auto;
+  }
+
+  /* 誤タップ防止スライダー */
+  .lock { margin: 0 0 36px; }
+  .track {
+    position: relative;
+    height: 64px;
+    padding-left: 56px;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: none;
+    cursor: grab;
+  }
+  .track.open { background: rgba(255, 255, 255, 0.24); }
+  .hint {
+    padding: 0 12px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1.35;
+    text-align: center;
+    pointer-events: none;
+  }
+  .thumb {
+    position: absolute;
+    left: 4px;
+    top: 4px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: #fff;
+    color: var(--accent);
+    display: grid;
+    place-items: center;
+    font-size: 1.7rem;
+    font-weight: 900;
+    line-height: 1;
+    pointer-events: none;
+    transition: transform 0.2s ease;
+  }
+  .thumb.active { transition: none; }
+
+  h1 {
+    margin: 0 0 12px;
+    font-size: clamp(1.6rem, 6vw, 2.2rem);
+    font-weight: 800;
+    line-height: 1.35;
+  }
+  .lead { margin: 0 0 28px; font-size: 1.05rem; }
+  .actions { display: grid; gap: 12px; }
+  button {
+    font: inherit;
+    font-weight: 700;
+    font-size: 1.05rem;
+    padding: 16px 20px;
+    border-radius: 10px;
+    border: 2px solid var(--ink);
+    cursor: pointer;
+    text-align: center;
+  }
+  .yes { background: #fff; border-color: #fff; color: var(--accent); }
+  .yes:hover:not(:disabled) { background: var(--hover); border-color: var(--hover); }
+  .no { background: transparent; color: var(--ink); }
+  .no:hover { background: rgba(255, 255, 255, 0.14); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  .meta { margin: 24px 0 0; font-size: 0.85rem; color: var(--mute); }
+  .meta strong { color: var(--ink); word-break: break-all; }
+  [hidden] { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .thumb { transition: none; }
+  }
+</style>
+</head>
+<body>
+<main class="gate">
+  <p class="numeral" aria-hidden="true">18+</p>
+
+  <div class="panel">
+    <div class="lock">
+      <div class="track" id="track">
+        <span class="hint" id="hint">右にスライドして押さえたままにする</span>
+        <div class="thumb" id="thumb" aria-hidden="true">›</div>
+      </div>
+    </div>
+
+    <h1>ここから先は成人向けサイトです</h1>
+    <p class="lead">18歳以上の方のみ閲覧できます。あなたは18歳以上ですか?</p>
+
+    <div class="actions">
+      <button type="button" class="yes" id="yes" disabled>はい、18歳以上です</button>
+      <button type="button" class="no" id="no">いいえ、戻ります</button>
+    </div>
+
+    <p class="meta" id="meta" hidden>移動先: <strong id="host"></strong></p>
+  </div>
+</main>
+
+<script>
+(function () {
+  // ===== 設定 =====
+  // 「いいえ」を押したときの移動先
+  var EXIT_URL = "https://www.google.com/";
+  // #以降が無い・不正なときの移動先
+  var NO_DEST_URL = "https://l.tnct.f5.si/";
+  // 移動を許可するドメインのリスト。空なら http/https の任意のURLを許可。
+  // 例: ["example.com", "www.example.com"]
+  var ALLOWED_HOSTS = [];
+  // true にすると、マウス操作でもスライダーを押さえ続ける必要がある
+  // (マウスは1つしかないので、PCでは「はい」を押せなくなります)
+  var HOLD_ON_MOUSE = false;
+  // ================
+
+  var HINT_LOCKED = "右にスライドして押さえたままにする";
+  var HINT_OPEN = "解除中。押さえたまま「はい」を押す";
+  var HINT_DONE = "ロック解除済み";
+
+  function getDestination() {
+    var raw = location.hash.slice(1);
+    if (!raw) return null;
+    try { raw = decodeURIComponent(raw); } catch (e) {}
+    // スキームが無ければ https:// を補う
+    if (!/^[a-z][a-z0-9+.\-]*:/i.test(raw)) raw = "https://" + raw;
+    try {
+      var u = new URL(raw);
+      if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+      if (ALLOWED_HOSTS.length && ALLOWED_HOSTS.indexOf(u.hostname) === -1) return null;
+      return u;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  var dest = getDestination();
+  if (!dest) {
+    location.replace(NO_DEST_URL);
+    return;
+  }
+
+  var yes = document.getElementById("yes");
+  var no = document.getElementById("no");
+  var track = document.getElementById("track");
+  var thumb = document.getElementById("thumb");
+  var hint = document.getElementById("hint");
+
+  document.getElementById("host").textContent = dest.hostname;
+  document.getElementById("meta").hidden = false;
+  document.documentElement.className = "ready";
+
+  var dragging = false, stuck = false, unlocked = false;
+  var pid = null, startX = 0, maxX = 0;
+
+  function setUnlocked(v) {
+    unlocked = v;
+    yes.disabled = !v;
+    track.classList.toggle("open", v);
+    hint.textContent = v ? (stuck ? HINT_DONE : HINT_OPEN) : HINT_LOCKED;
+  }
+
+  function start(id, x) {
+    if (stuck || dragging) return;
+    dragging = true;
+    pid = id;
+    startX = x;
+    maxX = track.clientWidth - thumb.offsetWidth - 8;
+    thumb.classList.add("active");
+  }
+
+  function move(id, x) {
+    if (!dragging || id !== pid) return;
+    var dx = Math.max(0, Math.min(maxX, x - startX));
+    thumb.style.transform = "translateX(" + dx + "px)";
+    var atEnd = dx >= maxX - 2;
+    if (atEnd !== unlocked) setUnlocked(atEnd);
+  }
+
+  // kind: "touch" | "mouse" | "cancel"
+  function finish(id, kind) {
+    if (!dragging || id !== pid) return;
+    dragging = false;
+    thumb.classList.remove("active");
+    // マウスは右端まで動かしたら解除したままにする
+    if (unlocked && kind === "mouse" && !HOLD_ON_MOUSE) {
+      stuck = true;
+      setUnlocked(true);
+      return;
+    }
+    thumb.style.transform = "";
+    setUnlocked(false);
+  }
+
+  function findTouch(list) {
+    for (var k = 0; k < list.length; k++) {
+      if (list[k].identifier === pid) return list[k];
+    }
+    return null;
+  }
+
+  if (window.PointerEvent) {
+    track.addEventListener("pointerdown", function (e) {
+      start(e.pointerId, e.clientX);
+      try { track.setPointerCapture(e.pointerId); } catch (err) {}
+      e.preventDefault();
+    });
+    track.addEventListener("pointermove", function (e) { move(e.pointerId, e.clientX); });
+    track.addEventListener("pointerup", function (e) {
+      finish(e.pointerId, e.pointerType === "touch" ? "touch" : "mouse");
+    });
+    track.addEventListener("pointercancel", function (e) { finish(e.pointerId, "cancel"); });
+  } else {
+    // 古いブラウザ向け(タッチイベント)
+    track.addEventListener("touchstart", function (e) {
+      var t = e.changedTouches[0];
+      start(t.identifier, t.clientX);
+      e.preventDefault();
+    }, { passive: false });
+    track.addEventListener("touchmove", function (e) {
+      var t = findTouch(e.changedTouches);
+      if (t) move(t.identifier, t.clientX);
+      e.preventDefault();
+    }, { passive: false });
+    track.addEventListener("touchend", function (e) {
+      var t = findTouch(e.changedTouches);
+      if (t) finish(t.identifier, "touch");
+    });
+    track.addEventListener("touchcancel", function (e) {
+      var t = findTouch(e.changedTouches);
+      if (t) finish(t.identifier, "cancel");
+    });
+  }
+  track.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+  yes.addEventListener("click", function () {
+    if (unlocked) location.href = dest.href;
+  });
+  no.addEventListener("click", function () {
+    location.href = EXIT_URL;
+  });
+})();
+</script>
+</body>
+</html>
